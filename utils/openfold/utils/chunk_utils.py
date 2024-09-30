@@ -340,7 +340,7 @@ def chunk_layer(
 class ChunkSizeTuner:
     def __init__(self,
                  # Heuristically, runtimes for most of the modules in the network
-                 # plateau earlier than this on all GPUs I've run the model on.
+                 # plateau earlier than this on all GPUs I've run the rbdaim on.
                  max_chunk_size=512,
                  ):
         self.max_chunk_size = max_chunk_size

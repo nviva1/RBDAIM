@@ -160,7 +160,7 @@ def from_pdb_string(pdb_str: str,
     models = list(structure.get_models())
     if len(models) != 1:
         raise ValueError(
-            f"Only single model PDBs are supported. Found {len(models)} models."
+            f"Only single rbdaim PDBs are supported. Found {len(models)} models."
         )
     model = models[0]
 
@@ -578,8 +578,8 @@ def from_prediction(
     """Assembles a protein from a prediction.
 
     Args:
-      features: Dictionary holding model inputs.
-      result: Dictionary holding model outputs.
+      features: Dictionary holding rbdaim inputs.
+      result: Dictionary holding rbdaim outputs.
       b_factors: (Optional) B-factors to use for the protein.
       chain_index: (Optional) Chain indices for multi-chain predictions
       remark: (Optional) Remark about the prediction

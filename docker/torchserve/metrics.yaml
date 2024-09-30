@@ -67,7 +67,7 @@ ts_metrics:
       dimensions: [*level, *device_id, *hostname]
 
 model_metrics:
-  # Dimension "Hostname" is automatically added for model metrics in the backend
+  # Dimension "Hostname" is automatically added for rbdaim metrics in the backend
   counter:
     - name: InferenceRequestCount
       unit: count

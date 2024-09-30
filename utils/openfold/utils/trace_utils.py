@@ -80,8 +80,8 @@ def trace_model_(model, sample_input):
     a = torch.rand(extra_msa_depth, n, model.globals.c_e).to(device)
     msa_mask = torch.randint(0, 1, (msa_depth + 4, n)).to(device)
 
-    # We need to do a dry run through the model so the chunk size tuners'
-    # trial runs (which run during the first-ever model iteration) aren't 
+    # We need to do a dry run through the rbdaim so the chunk size tuners'
+    # trial runs (which run during the first-ever rbdaim iteration) aren't
     # baked into the trace. There's no need to run the entire thing, 
     # though; we just need to run one block from each transformer stack.
     evoformer_blocks = model.evoformer.blocks
@@ -326,32 +326,32 @@ def trace_model_(model, sample_input):
     #    ("msa_mask", msa_mask),
     #    ("pair_mask", pair_mask),
     #    ("chunk_size", torch.tensor(evoformer_chunk_size)),
-    #    ("use_lma", torch.tensor(model.globals.use_lma)),
-    #    ("use_flash", torch.tensor(model.globals.use_flash)),
+    #    ("use_lma", torch.tensor(rbdaim.globals.use_lma)),
+    #    ("use_flash", torch.tensor(rbdaim.globals.use_flash)),
     #    ("inplace_safe", torch.tensor(1)),
-    #    ("_mask_trans", torch.tensor(model.config._mask_trans)),
+    #    ("_mask_trans", torch.tensor(rbdaim.config._mask_trans)),
     #    ("_attn_chunk_size", torch.tensor(evoformer_attn_chunk_size)),
     # ]
-    # verify_arg_order(model.evoformer.blocks[0].forward, evoformer_arg_tuples)
+    # verify_arg_order(rbdaim.evoformer.blocks[0].forward, evoformer_arg_tuples)
     # evoformer_args = [arg for _, arg in evoformer_arg_tuples]
     # with torch.no_grad():
     #    traced_evoformer_stack = []
-    #    for b in model.evoformer.blocks:
+    #    for b in rbdaim.evoformer.blocks:
     #        traced_block = trace_block(b, evoformer_args)
     #        traced_evoformer_stack.append(traced_block)
 
-    # del model.evoformer.blocks
-    # model.evoformer.blocks = traced_evoformer_stack
+    # del rbdaim.evoformer.blocks
+    # rbdaim.evoformer.blocks = traced_evoformer_stack
 
     #    with torch.no_grad():
-    #        for b in model.evoformer.blocks:
+    #        for b in rbdaim.evoformer.blocks:
     #            _ = b(*evoformer_args)
     #
     #    with torch.no_grad():
-    #        for b in model.evoformer.blocks:
+    #        for b in rbdaim.evoformer.blocks:
     #            _ = b(*evoformer_args)
     #    extra_msa_attn_chunk_size = max(
-    #        model.globals.chunk_size, extra_msa_chunk_size // 4
+    #        rbdaim.globals.chunk_size, extra_msa_chunk_size // 4
     #    )
     #    extra_msa_arg_tuples = [
     #        ("m", a),
@@ -359,41 +359,41 @@ def trace_model_(model, sample_input):
     #        ("msa_mask", extra_msa_mask),
     #        ("pair_mask", pair_mask),
     #        ("chunk_size", torch.tensor(extra_msa_chunk_size)),
-    #        ("use_lma", torch.tensor(model.globals.use_lma)),
+    #        ("use_lma", torch.tensor(rbdaim.globals.use_lma)),
     #        ("inplace_safe", torch.tensor(1)),
-    #        ("_mask_trans", torch.tensor(model.config._mask_trans)),
+    #        ("_mask_trans", torch.tensor(rbdaim.config._mask_trans)),
     #        ("_attn_chunk_size", torch.tensor(extra_msa_attn_chunk_size)),
     #    ]
     #    verify_arg_order(
-    #        model.extra_msa_stack.blocks[0].forward, extra_msa_arg_tuples
+    #        rbdaim.extra_msa_stack.blocks[0].forward, extra_msa_arg_tuples
     #    )
     #    extra_msa_args = [arg for _, arg in extra_msa_arg_tuples]
     #    with torch.no_grad():
     #        traced_extra_msa_stack = []
-    #        for b in model.extra_msa_stack.blocks:
+    #        for b in rbdaim.extra_msa_stack.blocks:
     #            traced_block = trace_block(b, extra_msa_args)
     #            traced_extra_msa_stack.append(traced_block)
     #
-    #    del model.extra_msa_stack.blocks
-    #    model.extra_msa_stack.blocks = traced_extra_msa_stack
+    #    del rbdaim.extra_msa_stack.blocks
+    #    rbdaim.extra_msa_stack.blocks = traced_extra_msa_stack
 
-    #    if(model.template_config.enabled):
+    #    if(rbdaim.template_config.enabled):
     #        template_pair_stack_attn_chunk_size = max(
-    #            model.globals.chunk_size, template_pair_stack_chunk_size // 4
+    #            rbdaim.globals.chunk_size, template_pair_stack_chunk_size // 4
     #        )
     #        template_pair_stack_arg_tuples = [
     #            ("z", t),
     #            ("mask", template_pair_mask),
     #            ("chunk_size", torch.tensor(template_pair_stack_chunk_size)),
-    #            ("use_lma", torch.tensor(model.globals.use_lma)),
+    #            ("use_lma", torch.tensor(rbdaim.globals.use_lma)),
     #            ("inplace_safe", torch.tensor(1)),
-    #            ("_mask_trans", torch.tensor(model.config._mask_trans)),
+    #            ("_mask_trans", torch.tensor(rbdaim.config._mask_trans)),
     #            ("_attn_chunk_size", torch.tensor(
     #                template_pair_stack_attn_chunk_size
     #            )),
     #        ]
     #        verify_arg_order(
-    #            model.template_pair_stack.blocks[0].forward,
+    #            rbdaim.template_pair_stack.blocks[0].forward,
     #            template_pair_stack_arg_tuples
     #        )
     #        template_pair_stack_args = [
@@ -402,14 +402,14 @@ def trace_model_(model, sample_input):
     #
     #        with torch.no_grad():
     #            traced_template_pair_stack = []
-    #            for b in model.template_pair_stack.blocks:
+    #            for b in rbdaim.template_pair_stack.blocks:
     #                traced_block = trace_block(b, template_pair_stack_args)
     #                traced_template_pair_stack.append(traced_block)
     #
-    #        del model.template_pair_stack.blocks
-    #        model.template_pair_stack.blocks = traced_template_pair_stack
+    #        del rbdaim.template_pair_stack.blocks
+    #        rbdaim.template_pair_stack.blocks = traced_template_pair_stack
 
-    # We need to do another dry run after tracing to allow the model to reach
+    # We need to do another dry run after tracing to allow the rbdaim to reach
     # top speeds. Why, I don't know.
     two_recycling_iter_input = tensor_tree_map(
         lambda t: t[..., :2], sample_input,

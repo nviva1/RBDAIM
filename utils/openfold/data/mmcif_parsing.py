@@ -223,7 +223,7 @@ def parse(
         seq_to_structure_mappings = {}
         for atom in _get_atom_site_list(parsed_info):
             if atom.model_num != "1":
-                # We only process the first model at the moment.
+                # We only process the first rbdaim at the moment.
                 continue
 
             mmcif_to_author_chain_id[atom.mmcif_chain_id] = atom.author_chain_id
@@ -301,7 +301,7 @@ def parse(
 
 
 def _get_first_model(structure: PdbStructure) -> PdbStructure:
-    """Returns the first model in a Biopython structure."""
+    """Returns the first rbdaim in a Biopython structure."""
     return next(structure.get_models())
 
 

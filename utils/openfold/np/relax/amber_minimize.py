@@ -387,8 +387,8 @@ def find_violations(prot_np: protein.Protein):
         atom14_pred_positions=batch["atom14_gt_positions"],
         config=ml_collections.ConfigDict(
             {
-                "violation_tolerance_factor": 12,  # Taken from model config.
-                "clash_overlap_tolerance": 1.5,  # Taken from model config.
+                "violation_tolerance_factor": 12,  # Taken from rbdaim config.
+                "clash_overlap_tolerance": 1.5,  # Taken from rbdaim config.
             }
         ),
     )

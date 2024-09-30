@@ -13,7 +13,7 @@ dependencies:
   - kalign3
   - abnumber
   - torchserve
-  - torch-model-archiver
+  - torch-rbdaim-archiver
   - torch-workflow-archiver
   - pip
   - pip:

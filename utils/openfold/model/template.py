@@ -407,7 +407,7 @@ def embed_templates_offload(
     """
     Args:
         model: 
-            An AlphaFold model object
+            An AlphaFold rbdaim object
         batch: 
             An AlphaFold input batch. See documentation of AlphaFold.
         z: 
@@ -516,7 +516,7 @@ def embed_templates_average(
     """
     Args:
         model: 
-            An AlphaFold model object
+            An AlphaFold rbdaim object
         batch: 
             An AlphaFold input batch. See documentation of AlphaFold.
         z: 

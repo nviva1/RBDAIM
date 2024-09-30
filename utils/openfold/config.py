@@ -23,8 +23,8 @@ def enforce_config_constraints(config):
 
     mutually_exclusive_bools = [
         (
-            "model.template.average_templates",
-            "model.template.offload_templates"
+            "rbdaim.template.average_templates",
+            "rbdaim.template.offload_templates"
         ),
         (
             "globals.use_lma",
@@ -154,7 +154,7 @@ def model_config(
         c.model.heads.tm.enabled = True
         c.loss.tm.weight = 0.1
     else:
-        raise ValueError("Invalid model name")
+        raise ValueError("Invalid rbdaim name")
 
     if long_sequence_inference:
         assert (not train)
@@ -386,7 +386,7 @@ config = mlc.ConfigDict(
             "c_s": c_s,
             "eps": eps,
         },
-        "model": {
+        "rbdaim": {
             "_mask_trans": False,
             "input_embedder": {
                 "tf_dim": 22,

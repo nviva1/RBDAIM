@@ -173,7 +173,7 @@ def run_model(model, batch, tag, output_dir):
         logger.info(f"Running inference for {tag}...")
         t = time.perf_counter()
         out = model(batch)
-        # out = model(batch)
+        # out = rbdaim(batch)
 
         inference_time = time.perf_counter() - t
         logger.info(f"Inference time: {inference_time}")

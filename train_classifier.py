@@ -7,7 +7,7 @@ from tqdm import tqdm
 import torch
 from sklearn.metrics import matthews_corrcoef
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from model.epitope_model import AntiBERTyFAB_CDR_Pair, AntiBERTyFAB_CLS_Pair, EpitopesPairDatasetCDR
+from rbdaim.epitope_model import AntiBERTyFAB_CDR_Pair, AntiBERTyFAB_CLS_Pair, EpitopesPairDatasetCDR
 import os
 import pickle
 
@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AdamW
 
-from model.epitope_model import AntiBERTyFAB_CDR_Pair, AntiBERTyFAB_CLS_Pair, EpitopesPairDatasetCDR
+from rbdaim.epitope_model import AntiBERTyFAB_CDR_Pair, AntiBERTyFAB_CLS_Pair, EpitopesPairDatasetCDR
 
 
 #VOCAB_FILE = os.path.join(trained_models_dir, 'vocab.txt')
@@ -57,8 +57,8 @@ def train_and_evaluate_model(model,
             loss.backward()
             optimizer.step()
 
-    # Evaluate the model on a separate validation dataset
-    model.eval()  # Set the model in evaluation mode
+    # Evaluate the rbdaim on a separate validation dataset
+    model.eval()  # Set the rbdaim in evaluation mode
     test_predictions = {"predictions":[],
                         "labels":[],
                         "antibody_ids":[],

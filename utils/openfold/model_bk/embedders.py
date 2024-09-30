@@ -142,7 +142,7 @@ class InputEmbedder(nn.Module):
 
 class RecyclingEmbedder(nn.Module):
     """
-    Embeds the output of an iteration of the model for recycling.
+    Embeds the output of an iteration of the rbdaim for recycling.
 
     Implements Algorithm 32.
     """

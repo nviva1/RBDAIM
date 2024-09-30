@@ -14,7 +14,7 @@ import subprocess
 import numpy as np
 from utils.openfold_wrapper import OpenFoldWraper
 from pathlib import Path
-from model.epitope_model import AntiBERTyFAB_CDR_Pair, AntiBERTyFAB_CLS_Pair, EpitopesPairDatasetCDR
+from rbdaim.epitope_model import AntiBERTyFAB_CDR_Pair, AntiBERTyFAB_CLS_Pair, EpitopesPairDatasetCDR
 import torch
 from torch import nn
 from abnumber import Chain
@@ -173,7 +173,7 @@ def load_classifier_models(postfix = "_full",
     models = []
     for i in range(5):
         for m in ["CDR", "CLS"]:
-            print(i, "model")
+            print(i, "rbdaim")
 
             if postfix=="_full":
                 model_name = f"./weights/NN_cv_{i}_{m}{postfix}.pth"
@@ -635,13 +635,13 @@ def main():
 
     output = args.output_directory
     Path(output).mkdir(exist_ok=True)
-    save_pdb(model, os.path.join(output, "model.pdb"))
+    save_pdb(model, os.path.join(output, "rbdaim.pdb"))
     predicted_epitope = epitope_probs["epitopes"][np.argmax(epitope_probs["scores"])]
 
     json.dump({"score":str(score),
                "epitope_probabilities":epitope_probs,
                "predicted_epitope":predicted_epitope,
-               "model_path":os.path.join(output, "model.pdb"),
+               "model_path":os.path.join(output, "rbdaim.pdb"),
                "closest_template":hit_name},
                open(os.path.join(output, "results.json"),'w'))
 
@@ -651,7 +651,7 @@ def main():
     print("Score of predicted protein", str(score))
     print("Eptiope probabilities:", epitope_probs)
     print("Predicted epitope:", predicted_epitope)
-    print("Path of PDB model:", os.path.join(output, "model.pdb"))
+    print("Path of PDB rbdaim:", os.path.join(output, "rbdaim.pdb"))
     print("Closest Fab template:", hit_name)
     
 if __name__ == "__main__":

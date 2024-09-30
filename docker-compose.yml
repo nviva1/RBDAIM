@@ -48,13 +48,13 @@ services:
       - "127.0.0.1:8081:8081"
       - "127.0.0.1:8082:8082"
     volumes:
-      - ./model-store:/opt/serve/model-store
+      - ./rbdaim-store:/opt/serve/rbdaim-store
       - ./docker/torchserve/config.properties:/opt/serve/config.properties
       - ./docker/torchserve/metrics.yaml:/opt/serve/metrics.yaml
       - ./logs:/opt/serve/logs
       - ./handler.py:/opt/serve/handler.py
       - ./RBD_epitopes_ACE.csv:/opt/serve/RBD_epitopes_ACE.csv
-    command: bash -c 'torchserve --foreground --ncs --model-store model-store --models OpenFold.mar --ts-config config.properties'
+    command: bash -c 'torchserve --foreground --ncs --rbdaim-store rbdaim-store --models OpenFold.mar --ts-config config.properties'
 
   nextjs:
     container_name: nextjs

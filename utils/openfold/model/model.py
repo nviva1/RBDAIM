@@ -212,7 +212,7 @@ class AlphaFold(nn.Module):
         n_seq = feats["msa_feat"].shape[-3]
         device = feats["target_feat"].device
 
-        # Controls whether the model uses in-place operations throughout
+        # Controls whether the rbdaim uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
         inplace_safe = not (self.training or torch.is_grad_enabled())
 
@@ -437,13 +437,13 @@ class AlphaFold(nn.Module):
                         indices is not one-hot.
                     "target_feat" ([*, N_res, C_tf])
                         One-hot encoding of the target sequence. C_tf is
-                        config.model.input_embedder.tf_dim.
+                        config.rbdaim.input_embedder.tf_dim.
                     "residue_index" ([*, N_res])
                         Tensor whose final dimension consists of
                         consecutive indices from 0 to N_res.
                     "msa_feat" ([*, N_seq, N_res, C_msa])
                         MSA features, constructed as in the supplement.
-                        C_msa is config.model.input_embedder.msa_dim.
+                        C_msa is config.rbdaim.input_embedder.msa_dim.
                     "seq_mask" ([*, N_res])
                         1-D sequence mask
                     "msa_mask" ([*, N_seq, N_res])
@@ -493,7 +493,7 @@ class AlphaFold(nn.Module):
                     if torch.is_autocast_enabled():
                         torch.clear_autocast_cache()
 
-                # Run the next iteration of the model
+                # Run the next iteration of the rbdaim
                 outputs, m_1_prev, z_prev, x_prev = self.iteration(
                     feats,
                     prevs,

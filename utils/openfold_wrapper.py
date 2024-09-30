@@ -213,7 +213,7 @@ class OpenFoldWraper:
         self,
         weights_path="/Users/ivanisenko/projects/ProteinAIDesign/CGMover/alphafold/params_model_2_ptm.npz",
     ):
-        """get config, prepare feature_processor and load model"""
+        """get config, prepare feature_processor and load rbdaim"""
         self.config = model_config("model_2_ptm", low_prec=(True))
         self.feature_processor = feature_pipeline.FeaturePipeline(self.config.data)
         model_generator = load_models_from_command_line(
@@ -333,7 +333,7 @@ class OpenFoldWraper:
                 processed_feature_dict[c] = torch.as_tensor(p, device=self.device)
             processed_feature_dict[c] = processed_feature_dict[c][None, ...]
 
-        """ load alphafold model """
+        """ load alphafold rbdaim """
 
         with torch.no_grad():
             out_batch, out_per_cycle = self.model(processed_feature_dict)

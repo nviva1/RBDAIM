@@ -165,7 +165,7 @@ def script_submodules_(
     """
     Convert all submodules whose types match one of those in the input 
     list to recursively scripted equivalents in place. To script the entire
-    model, just call torch.jit.script on it directly.
+    rbdaim, just call torch.jit.script on it directly.
 
     When types is None, all submodules are scripted.
 
