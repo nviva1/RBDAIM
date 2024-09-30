@@ -1,0 +1,667 @@
+import numpy as np
+import pandas as pd
+import pickle
+import torch
+from biopandas.pdb import PandasPdb
+from scipy.spatial import distance
+import json
+import utils.openfold.np.protein as protein
+from functools import reduce
+
+aa_3_to_1 = {
+    "CYS": "C",
+    "ASP": "D",
+    "SER": "S",
+    "GLN": "Q",
+    "LYS": "K",
+    "ILE": "I",
+    "PRO": "P",
+    "THR": "T",
+    "PHE": "F",
+    "ASN": "N",
+    "GLY": "G",
+    "HIS": "H",
+    "LEU": "L",
+    "ARG": "R",
+    "TRP": "W",
+    "ALA": "A",
+    "VAL": "V",
+    "GLU": "E",
+    "TYR": "Y",
+    "MET": "M",
+    "UNK": "U",
+    "-": "-",
+}
+aa_1_to_3 = {v: k for k, v in aa_3_to_1.items()}
+
+
+class proteinTask:
+    def __init__(self):
+        self.task = {
+            "input_protein": {
+                "path": None,  # input protein path
+                "chains": None,  # input protein chains
+                "regions": None,
+            },  # input protein regions
+            "mutants": [],  # input mutants in format (aa_wt, residue_position, aa_mt, chain_id)
+            "obs_positions": [],  # positions to calculate embeddings for in original numbering system
+        }
+
+        self.protein_job = {
+            "protein": None,  # processed protein dataframe with introduced mutants
+            "obs_positions": {},  # positions in the internal numbering system
+        }
+        pass
+
+    def add_protein(self, protein_path, chains=None, regions=None):
+        self.task["input_protein"] = {
+            "path": protein_path,
+            "chains": chains,
+            "regions": regions,
+        }
+
+    def add_observable_positions(
+        self, resi=None, shift_from_resi=0, chain_id=None, name=None
+    ):
+        if name is None:
+            name = (resi, chain_id)
+        self.task["obs_positions"].append(
+            {
+                "resi": resi,
+                "shift_from_resi": shift_from_resi,
+                "chain_id": chain_id,
+                "name": name,
+            }
+        )
+
+    def save_task(self, path):
+        json.dump(self.task, open(path, "w"))
+
+    def load_task(self, path):
+        self.task = json.load(open(path))
+
+    def save_results(self, path):
+        pickle.dump(self.protein_job, open(path, "wb"))
+
+    def add_mutant(self, aa_wt=None, resi=None, aa_mt=None, chain_id=None):
+        self.task["mutants"].append(
+            {"aa_before": aa_wt, "resi": resi, "aa_after": aa_mt, "chain_id": chain_id}
+        )
+
+    def apply(self):
+        protein_path = self.task["input_protein"]["path"]
+        chains = self.task["input_protein"]["chains"]
+        regions = self.task["input_protein"]["regions"]
+        protein = load_protein(protein_path)
+        if chains is not None:
+            protein = protein[protein["chain_id_original"].isin(list(chains))]
+        if regions is not None:
+            conditions = []
+            for chain in regions:
+                for r in regions[chain]:
+                    cond1 = protein["chain_id_original"] == chain
+                    cond2 = protein["residue_number_original"].isin(
+                        range(r[0], r[1] + 1)
+                    )
+                    conditions.append(cond1 & cond2)
+            combined_condition = reduce(lambda x, y: x | y, conditions)
+            protein = protein[combined_condition]
+            update_internal_residue_numbering(protein)
+
+        self.protein_job["protein_wt"] = protein
+        self.protein_job["protein_mt"] = mutate_protein(protein, self.task["mutants"])
+
+        for obs_pos in self.task["obs_positions"]:
+            name = obs_pos["name"]
+            resi = obs_pos["resi"]
+            delta_resi = obs_pos["shift_from_resi"]
+            chain_id = obs_pos["chain_id"]
+            pt = self.protein_job["protein_mt"]
+            pt = pt[pt["atom_name"] == "CA"].reset_index(drop=True)
+            # t = pt[pt["chain_id_original"]=="B"]
+            # print(list(t["residue_number_original"]))
+            con1 = pt["residue_number_original"] == resi + delta_resi
+            con2 = pt["chain_id_original"] == chain_id
+            resi_obs = pt[con1 & con2]
+            if resi_obs.shape[0] == 0:
+                AssertionError(
+                    "Couldn't find observable residue in mt protein", obs_pos
+                )
+            if resi_obs.shape[0] != 1:
+                AssertionError(
+                    "Several residues corresponds to the observable residue",
+                    resi_obs.shape,
+                    obs_pos,
+                )
+            self.protein_job["obs_positions"][name] = resi_obs.index[0]
+
+
+def mask_protein_region(self, pdb_df, mask_region):
+    """
+    :param pdb_df: pdb dataframe
+    :param mask_region: list  in format (residue, chain), e.g. "(18,'A'), (19,'B') ... "
+    :return: pdb_dataframe with masked region
+    """
+    for resi, chain in mask_region:
+        pdb_df.loc[
+            (pdb_df["residue_number_original"] == resi)
+            & (pdb_df["chain_id_original"] == chain),
+            "mask",
+        ] = True
+    return pdb_df
+
+
+def make_dummy_residues(pdb_df_line, residue_number, sequence="RGGRGRGR"):
+    residues = []
+    for i, s in enumerate(list(sequence)):
+        pdb_df_line = pdb_df_line.copy()
+        pdb_df_line["atom_name"] = "CA"
+        pdb_df_line["residue_name"] = aa_1_to_3[s]
+        pdb_df_line["residue_number"] = residue_number + i + 1
+        pdb_df_line["residue_number_original"] = None
+        pdb_df_line["chain_id_original"] = None
+        residues.append(pdb_df_line)
+    return residues
+
+
+def save_pdb(pdb_df, output_name, original_numbering=True, ab_atoms=pd.DataFrame(), complex=True):
+    """
+    :param pdb_df: pdb dataframe
+    :param output_name: output pdb path
+    :return:
+    """
+    prot = PandasPdb()
+    pdb_df = pdb_df.copy()
+    if original_numbering:
+        pdb_df["residue_number"] = pdb_df["residue_number_original"]
+        pdb_df["chain_id"] = pdb_df["chain_id_original"]
+    if not complex:
+        pdb_df = pdb_df[pdb_df.chain_id == '1']
+    if not ab_atoms.empty:
+        prot.df["HETATM"] = ab_atoms
+    prot.df["ATOM"] = pdb_df
+    prot.to_pdb(output_name)
+
+
+def make_dummy_protein(seq):
+    N = len(seq)
+    df = {
+        "record_name": {"0": "ATOM", "1": "ATOM", "2": "ATOM", "3": "ATOM"},
+        "atom_number": {"0": 1, "1": 2, "2": 3, "3": 4},
+        "blank_1": {"0": "", "1": "", "2": "", "3": ""},
+        "atom_name": {"0": "N", "1": "CA", "2": "C", "3": "O"},
+        "alt_loc": {"0": "", "1": "", "2": "", "3": ""},
+        "residue_name": {"0": "AAA", "1": "AAA", "2": "AAA", "3": "AAA"},
+        "blank_2": {"0": "", "1": "", "2": "", "3": ""},
+        "chain_id": {"0": "A", "1": "A", "2": "A", "3": "A"},
+        "residue_number": {"0": 1, "1": 1, "2": 1, "3": 1},
+        "insertion": {"0": "", "1": "", "2": "", "3": ""},
+        "blank_3": {"0": "", "1": "", "2": "", "3": ""},
+        "x_coord": {"0": 0.000, "1": 0.000, "2": 0.000, "3": 0.000},
+        "y_coord": {"0": 0.000, "1": 0.000, "2": 0.000, "3": 0.000},
+        "z_coord": {"0": 0.000, "1": 0.000, "2": 0.000, "3": 0.000},
+        "occupancy": {"0": 1.0, "1": 1.0, "2": 1.0, "3": 1.0},
+        "b_factor": {"0": 0.0, "1": 0.0, "2": 0.0, "3": 0.0},
+        "blank_4": {"0": "", "1": "", "2": "", "3": ""},
+        "segment_id": {"0": "", "1": "", "2": "", "3": ""},
+        "element_symbol": {"0": "N", "1": "C", "2": "C", "3": "O"},
+        "charge": {"0": np.nan, "1": np.nan, "2": np.nan, "3": np.nan},
+        "line_idx": {"0": 508, "1": 509, "2": 510, "3": 511},
+        "residue_number_original": {"0": 1, "1": 1, "2": 1, "3": 1},
+        "chain_id_original": {"0": "A", "1": "A", "2": "A", "3": "A"},
+        "mask": {"0": True, "1": True, "2": True, "3": True},
+    }
+    protein = []
+    n = 0
+    for i in range(N):
+        resi = pd.DataFrame(df).reset_index(drop=True)#, inplace=True)
+        resi["residue_number"] = i+1
+        resi["residue_name"] = aa_1_to_3[seq[i]]
+        resi.index = [i+len(protein)*4 for i in range(4)]
+        resi["atom_number"] = resi.index
+        protein.append(resi)
+        #break
+
+    #print(protein[0])
+    #print(protein[1])
+
+    protein = pd.concat(protein)#, ignore_index=True)#axis=0)#.reset_index(drop=True)
+    protein["residue_number_original"] = protein["residue_number"]
+
+    protein["line_idx"] = protein["atom_number"]
+
+    #print(protein)
+    #exit(0)
+
+    return protein
+
+def insert_protein_region(pdb_df, insertion_residue_position, sequence):
+    before_or_after = "after"
+    """
+    :param pdb_df: pdb dataframe
+    :param insert_region: list in format [{"residue_number":resi, "chain_id":chain, "sequence": "GGGGRRRGG", "before_or_after":"before"}]
+    :return: pdb_df with added dummy atoms
+    """
+
+    if isinstance(insertion_residue_position, str):
+        ins_residue_number = int(insertion_residue_position[:-1])
+        ins_residue_chain = insertion_residue_position[-1]
+    else:
+        (ins_residue_number, ins_residue_chain) = insertion_residue_position
+
+    pdb_df = pdb_df.copy()
+    # print(pdb_df[pdb_df["chain_id"]=="C"]["residue_number"])
+    residues = []
+    residue_shift = 0
+
+    pdb_resi_insert = pdb_df[
+        (pdb_df["residue_number_original"] == ins_residue_number)
+        & (pdb_df["chain_id_original"] == ins_residue_chain)
+    ]
+    if pdb_resi_insert.shape[0] == 0:
+        ins_residue_number += 1
+        pdb_resi_insert = pdb_df[
+            (pdb_df["residue_number_original"] == ins_residue_number)
+            & (pdb_df["chain_id_original"] == ins_residue_chain)
+        ]
+        before_or_after = "before"
+
+    resi = pdb_resi_insert["residue_number"].iloc()[0]
+    pdb_df_before = pdb_df[(pdb_df["residue_number"] < resi)]
+    pdb_df_after = pdb_df[(pdb_df["residue_number"] > resi)]
+    # pdb_df_after["residue_number"] += len(sequence)
+    # print(ins_residue_number, ins_residue_chain)
+    print(pdb_resi_insert)
+
+    dummy_atoms = []
+    for i, s in enumerate(list(sequence)):
+        dummy_atom = pdb_resi_insert[pdb_resi_insert["atom_name"] == "CA"].copy()
+        dummy_atom["residue_number_original"] = ins_residue_number
+        dummy_atom["insertion"] = i
+        dummy_atom["chain_id_original"] = ins_residue_chain
+        dummy_atom.loc[:, "residue_number"] = i
+        dummy_atom["mask"] = True
+        dummy_atom["residue_name"] = aa_1_to_3[s]
+        dummy_atoms.append(dummy_atom)
+    dummy_atoms = pd.concat(dummy_atoms)
+
+    if before_or_after == "before":
+        dummy_atoms.loc[:, "residue_number"] += resi
+        pdb_resi_insert.loc[:, "residue_number"] += len(sequence)
+        pdb_df_after.loc[:, "residue_number"] += len(sequence)
+        return pd.concat([pdb_df_before, dummy_atoms, pdb_resi_insert, pdb_df_after])
+    else:
+        dummy_atoms.loc[:, "residue_number"] += resi + 1
+        pdb_df_after.loc[:, "residue_number"] += len(sequence)
+        return pd.concat([pdb_df_before, pdb_resi_insert, dummy_atoms, pdb_df_after])
+
+    residue_insertion = pdb_df[
+        (pdb_df["residue_number_original"] == ins_residue_number)
+        & (pdb_df["chain_id"] == ins_residue_chain)
+    ]
+
+    df_before = pdb_df
+
+    return
+
+
+def update_internal_residue_numbering(pdb_df):
+    resi = 0
+    resi_prev = None
+    key_prev = None
+    n = 0
+    pdb_df_ca = pdb_df[pdb_df["atom_name"]=="CA"]
+    residues = []
+    keys = []
+    for c, pdb_df_ca_c in pdb_df_ca.groupby(["chain_id_original"], sort=False):
+        delta = 0
+        d = pdb_df_ca_c.iloc()[0]
+        residues.append(d["residue_number_original"])
+        keys.append([d[r] for r in ["chain_id_original",
+                                    "residue_number_original",
+                                    "insertion_original"]])
+
+        for i in range(1,pdb_df_ca_c.shape[0]):
+            d_prev = pdb_df_ca_c.iloc()[i-1]
+            d = pdb_df_ca_c.iloc()[i]
+            resi_prev = d_prev["residue_number_original"]
+            resi = d["residue_number_original"]
+            if resi_prev == resi:
+                delta+=1
+            residues.append(resi+delta)
+            keys.append([d[r] for r in ["chain_id_original",
+                                        "residue_number_original",
+                                        "insertion_original"]])
+    kr = {}
+    for r,k in zip(residues,keys):
+        kr[tuple(k)] = r
+        #print(tuple(k),r)
+        
+    for c, df in pdb_df.groupby(["chain_id_original",
+                                 "residue_number_original",
+                                 "insertion_original"
+                                 ], sort=False):
+        #print(df.index)
+        pdb_df.loc[list(df.index), "residue_number"] = kr[tuple(c)]
+    pdb_df["insertion"]=""        
+        
+    residue_number_af = []
+    n_chain = 0
+    for chain, df_ in pdb_df.groupby(["chain_id_original"], sort=False):
+        residue_number_af_ = df_["residue_number"].to_numpy()
+        residue_number_af_ -= residue_number_af_[0] - 1 - n_chain
+        residue_number_af += list(residue_number_af_)
+        n_chain = 25 + residue_number_af[-1]  # add gap between chains
+    pdb_df["residue_number"] = residue_number_af
+    
+    #residue_number_ins = []
+    #pdb_df_ca = pdb_df[pdb_df["atom_name"]=="CA"]
+
+
+def load_protein(path):
+    """load protein and change numbering from 1 to N_res
+    add 25 residues gap between chains
+    input: pdb_path
+    output: pdb dataframe prepared for alphafold inference
+    """
+
+    pdb_df = PandasPdb().read_pdb(path).df["ATOM"]
+    pdb_df = pdb_df[pdb_df["alt_loc"].isin(["A", ""])]
+    pdb_df = pdb_df[pdb_df["element_symbol"] != "H"]
+    pdb_df = pdb_df[pdb_df["element_symbol"] != "D"]
+    #print(list(pdb_df))
+    #exit(0)
+     
+    pdb_df["residue_number_original"] = pdb_df["residue_number"]
+    pdb_df["chain_id_original"] = pdb_df["chain_id"]
+    pdb_df["insertion_original"] = pdb_df["insertion"]
+    
+    update_internal_residue_numbering(pdb_df)
+
+    # residue_number_af = []
+    # n_chain = 0
+    # for chain, df_ in pdb_df.groupby(["chain_id"], sort=False):
+    #    residue_number_af_ = df_["residue_number"].to_numpy()
+    #    residue_number_af_ -= residue_number_af_[0] - 1 - n_chain
+    #    residue_number_af += list(residue_number_af_)
+    #    n_chain = 25 + residue_number_af[-1]  # add gap between chains
+
+    # pdb_df["residue_number_original"] = pdb_df["residue_number"]
+    # pdb_df["residue_number"] = residue_number_af
+    # pdb_df["chain_id_original"] = pdb_df["chain_id"]
+    pdb_df["chain_id"] = "A"
+    pdb_df["mask"] = False
+
+    pdb_df = pdb_df[pdb_df["element_symbol"] != "H"]
+    return pdb_df
+
+
+def mutate_protein(pdb_df, mutant_codes, ignore_not_found=False, wt_control=False):
+    """
+    function split mutant_codes to (1) single amino acid mutants & deletions (2) insertions
+    input:
+     pdb_df - pandas dataframe
+      mutan_codes in format {(aa_before, residue_number, chain_id): aa_after), ...}
+    output:
+      pdb dataframe for mutant and wt
+      for mutant residues only backbone atoms are kept both in mutant and wt dataframes
+    """
+    mutant_codes_1 = [k for k in mutant_codes if k["aa_before"] != "-"]
+    mutant_codes_ins = [k for k in mutant_codes if k["aa_before"] == "-"]
+
+    if wt_control:
+        for i in range(len(mutant_codes_1)):
+            mutant_codes_1[i]["aa_after"] = mutant_codes_1[i]["aa_before"]
+
+    print(mutant_codes_1)
+
+    if len(mutant_codes_1) != 0:
+        pdb_df = mutate_protein_(pdb_df, mutant_codes_1)
+
+    if wt_control:
+        return pdb_df
+
+    if len(mutant_codes_ins) != 0:
+        for k in mutant_codes_ins:
+            seq = k["aa_after"]
+            resi = k["resi"]
+            chain = k["chain_id"]
+            pdb_df = insert_protein_region(pdb_df, (resi, chain), seq)
+            # , "after")
+    return pdb_df
+
+
+def add_b_factor(pdb_df, values):
+    """
+    :param pdb_df: dataframe of protein
+    :param values: values corresponding to CA atom that should be added to other atoms
+    :return: dataframe of protein with b_factor column replaced by values vector
+    """
+    pdb_df_ca = pdb_df[pdb_df["atom_name"] == "CA"]
+    assert pdb_df_ca.shape[0] == len(values), print("N_CA != len(values)")
+    for i, p in enumerate(pdb_df_ca.iloc()):
+        resi = p["residue_number"]
+        chain = p["chain_id"]
+        pdb_df.loc[
+            (pdb_df["residue_number"] == resi) & (pdb_df["chain_id"] == chain),
+            "b_factor",
+        ] = values[i]
+    return pdb_df
+
+
+def mutate_protein_(pdb_df, mutant_codes, ignore_not_found=False):
+    """
+    input:
+     pdb_df - pandas dataframe
+      mutan_codes in format {(aa_before, residue_number, chain_id): aa_after), ...}
+    output:
+      pdb dataframe for mutant and wt
+      for mutant residues only backbone atoms are kept both in mutant and wt dataframes
+    """
+
+    """ conver single letter code to three letter code if it is the case """
+    mutant_codes_3 = {}
+
+    for k in mutant_codes:
+        if len(k["aa_before"]) == 1:
+            aa_before = aa_1_to_3[k["aa_before"]]
+        if len(k["aa_after"]) == 1:
+            aa_after = aa_1_to_3[k["aa_after"]]
+        mutant_codes_3[(aa_before, k["resi"], k["chain_id"])] = aa_after
+
+    mutant_codes = mutant_codes_3
+    pdb_df_mutant = []
+    n_mutants = 0
+    pdb_df["residue_name_wt"] = pdb_df["residue_name"]
+    n_shift = 0
+    for k, df in pdb_df.groupby(
+        ["residue_name", "residue_number_original", "chain_id_original"], sort=False
+    ):
+        df_mutant = df.copy()
+        df_mutant["residue_number"] += n_shift
+        if k in mutant_codes and mutant_codes[k] != "-":
+            """amino acid substituion
+            keep only backbone atoms from the template and rename residue
+            """
+            df_ = df[df["atom_name"].isin(["N", "CA", "C", "O"])]
+            assert df_.shape[0] == 4
+            # df_mutant["residue_name"] = mutant_codes[k]
+            df_.loc[:, "residue_name"] = mutant_codes[k]  # df_
+            pdb_df_mutant.append(df_)  # mutant)
+            n_mutants += 1
+            continue
+        if k in mutant_codes and mutant_codes[k] == "-":
+            """deletion
+            ignore the residue and update the numbering
+            """
+            n_mutants += 1
+            n_shift -= 1
+            continue
+        pdb_df_mutant.append(df_mutant)
+
+    # print(n_mutants)
+    # print(len(mutant_codes))
+
+    if not ignore_not_found:
+        assert n_mutants == len(mutant_codes)
+    pdb_df_mutant = pd.concat(pdb_df_mutant)
+    return pdb_df_mutant
+
+
+def pdbline_to_dict(line):
+    """
+    args:
+         pdblineToDataframe(string, tuple, list)
+
+         line -- string from PDB file (starts with ATOM ...) -> string
+         resi_key
+
+        returns
+        change protein name
+    """
+    atom_name = line[13:15]
+    if line[15] != " ":
+        atom_name += line[15]
+    residue_name = line[17:20]
+    chain_name = line[21]
+    residue_number = int(line[22:26])
+    x, y, z = line[30:38], line[38:46], line[46:54]
+    if x[0] != " ":
+        x = x[1:]
+    if y[0] != " ":
+        y = y[1:]
+    if z[0] != " ":
+        z = z[1:]
+    (
+        x,
+        y,
+        z,
+    ) = (
+        float(x),
+        float(y),
+        float(z),
+    )
+    if len(line) >= 77:
+        atom_type = line[77]
+    else:
+        atom_type = atom_name[0]
+    b = float(line[61:66])
+    atom_number = int(line[4:11])
+    df_ = {
+        c: ""
+        for c in [
+            "record_name",
+            "atom_number",
+            "blank_1",
+            "atom_name",
+            "alt_loc",
+            "residue_name",
+            "blank_2",
+            "chain_id",
+            "residue_number",
+            "insertion",
+            "blank_3",
+            "x_coord",
+            "y_coord",
+            "z_coord",
+            "occupancy",
+            "b_factor",
+            "blank_4",
+            "segment_id",
+            "element_symbol",
+            "charge",
+            "line_idx",
+        ]
+    }
+    df_["atom_number"] = atom_number
+    df_["record_name"] = "ATOM"
+    df_["atom_name"] = atom_name
+    df_["residue_name"] = residue_name
+    df_["aa"] = aa_3_to_1[residue_name]
+    df_["chain_id"] = chain_name
+    df_["residue_number"] = residue_number
+    df_["x_coord"] = x
+    df_["y_coord"] = y
+    df_["charge"] = 0
+    df_["z_coord"] = z
+    df_["occupancy"] = 1.0  # 1.0
+    df_["b_factor"] = float(b)  # 105.55
+    df_["element_symbol"] = atom_type
+    return df_
+
+
+def get_sequence(pdb_df):
+    return "".join(
+        [
+            aa_3_to_1[r["residue_name"]]
+            for r in pdb_df[pdb_df["atom_name"] == "CA"].iloc()
+        ]
+    )
+
+
+def pdb_str_to_dataframe(pdb_lines, pdb_df_prev=None):
+    """
+    :param pdb_lines: alphafold predictions
+    :param pdb_df_old: dataframe that contains extra columns, e.g. original_numbering
+    :return:
+    """
+    if isinstance(pdb_lines, str):
+        pdb_lines = pdb_lines.split("\n")
+    pdb_df = []
+    for line in pdb_lines:
+        if not line.startswith("ATOM"):
+            continue
+        pdb_df.append(pdbline_to_dict(line))
+    columns = [
+        "record_name",
+        "atom_number",
+        "blank_1",
+        "atom_name",
+        "alt_loc",
+        "residue_name",
+        "blank_2",
+        "chain_id",
+        "residue_number",
+        "insertion",
+        "blank_3",
+        "x_coord",
+        "y_coord",
+        "z_coord",
+        "occupancy",
+        "b_factor",
+        "blank_4",
+        "segment_id",
+        "element_symbol",
+        "charge",
+        "line_idx",
+    ]
+    pdb_df = pd.DataFrame(pdb_df)
+    pdb_df = pdb_df.reindex(columns=columns)
+    pdb_df["line_idx"] = pdb_df.index
+    if pdb_df_prev is None:
+        return pdb_df
+
+    original_numbering = {
+        k: (
+            r.iloc()[0]["residue_number_original"],
+            r.iloc()[0]["chain_id_original"],
+            r.iloc()[0]["insertion"],
+        )
+        for k, r in pdb_df_prev.groupby(["residue_number", "chain_id"], sort=False)
+    }
+
+    print(original_numbering)
+    pdb_df["residue_number_original"] = [
+        original_numbering[(r["residue_number"], r["chain_id"])][0]
+        for r in pdb_df.iloc()
+    ]
+    pdb_df["chain_id_original"] = [
+        original_numbering[(r["residue_number"], r["chain_id"])][1]
+        for r in pdb_df.iloc()
+    ]
+    pdb_df["insertion"] = [
+        original_numbering[(r["residue_number"], r["chain_id"])][2]
+        for r in pdb_df.iloc()
+    ]
+
+    return pdb_df

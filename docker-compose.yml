@@ -1,0 +1,95 @@
+version: '3'
+
+services:
+  nginx:
+    container_name: nginx
+    image: nginx:1.19.6-alpine
+    depends_on:
+      - fastapi
+      - torchserve
+      - nextjs
+      - grafana
+    restart: unless-stopped
+    ports:
+      - "81:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./frontend/build:/usr/share/nginx/html
+      - /etc/nginx/.htpasswd:/etc/nginx/.htpasswd
+
+  fastapi:
+    container_name: fastapi
+    build:
+      context: ./docker
+      dockerfile: fastapi/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./logs_fastapi:/src/logs
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - redis
+
+  torchserve:
+    container_name: torchserve
+    build:
+      context: ./docker
+      dockerfile: torchserve/Dockerfile
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:8082:8082"
+    volumes:
+      - ./model-store:/opt/serve/model-store
+      - ./docker/torchserve/config.properties:/opt/serve/config.properties
+      - ./docker/torchserve/metrics.yaml:/opt/serve/metrics.yaml
+      - ./logs:/opt/serve/logs
+      - ./handler.py:/opt/serve/handler.py
+      - ./RBD_epitopes_ACE.csv:/opt/serve/RBD_epitopes_ACE.csv
+    command: bash -c 'torchserve --foreground --ncs --model-store model-store --models OpenFold.mar --ts-config config.properties'
+
+  nextjs:
+    container_name: nextjs
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: sh -c "npm run build"
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    user: "569201960"
+    volumes:
+      - ./docker/grafana/data:/var/lib/grafana
+    environment:
+      - GF_SERVER_DOMAIN=192.168.18.43
+      - GF_SERVER_ROOT_URL=http://192.168.18.43/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+
+  redis:
+    image: redis:7.2
+    container_name: redis
+    ports:
+      - "6379:6379"

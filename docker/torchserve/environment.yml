@@ -1,0 +1,31 @@
+name: base
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+  - bioconda
+  - defaults
+dependencies:
+  - pdbfixer
+  - openmm
+  - libstdcxx-ng
+  - scikit-learn
+  - kalign3
+  - abnumber
+  - torchserve
+  - torch-model-archiver
+  - torch-workflow-archiver
+  - pip
+  - pip:
+      - nvgpu
+      - seaborn
+      - biopandas
+      - biopython
+      - dm-tree
+      - ml-collections
+      - pytorch-lightning
+      - scipy
+      - openmm
+      - scikit-learn
+      - antiberty
+prefix: /opt/conda

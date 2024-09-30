@@ -1,0 +1,6 @@
+fastapi
+sse-starlette
+uvicorn[standard]
+asyncio
+python-dotenv
+redis
