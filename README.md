@@ -12,8 +12,28 @@ python rbdaim.py
 A demo of the model, with a detailed explanation of input and output, is available at:
 [https://rbdaim.2a2i.org/](https://rbdaim.2a2i.org/)
 
+## Docker Installation
 
+To simplify the setup process, this project includes a `Dockerfile`. Follow the steps below to build and run the Docker container:
 
+### Prerequisites
+Make sure you have the following installed:
+- [Docker](https://www.docker.com/get-started)
+
+### Building the Docker Image
+To set up and run the RBDAIM model using Docker:
+
+1. Clone the repository:
+git clone https://github.com/your-username/rbdaim.git
+cd rbdaim
+2. Build the Docker image:
+docker build -t rbdaim .
+3. Run the Docker container and execute the model:
+docker run -it --rm rbdaim python rbdaim.py
+
+### Inference time
+
+The RBDAIM model has been tested on an NVIDIA V100 GPU running Ubuntu. The average inference time for a single input is approximately 3 minutes. Performance may vary depending on the hardware and input size.
 
 # License and Disclaimer
 
