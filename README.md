@@ -9,6 +9,9 @@ Example of model inference:
 
 python rbdaim.py
 
+A demo of the model, with a detailed explanation of input and output, is available at:
+[https://rbdaim.2a2i.org/](https://rbdaim.2a2i.org/)
+
 
 
 
